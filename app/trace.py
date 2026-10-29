@@ -100,8 +100,21 @@ class Tracer:
         return sanitized
 
     def events(self) -> list[dict[str, Any]]:
-        """Return a copy of all recorded events."""
-        return list(self._events)
+        """Return a copy of all recorded events, reading from disk if in-memory list is empty."""
+        if self._events:
+            return list(self._events)
+        if self.trace_file.exists():
+            records: list[dict[str, Any]] = []
+            try:
+                with open(self.trace_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line:
+                            records.append(json.loads(line))
+                return records
+            except Exception:
+                pass
+        return []
 
     @contextmanager
     def node(self, node: str, **initial_fields: Any) -> Iterator[dict[str, Any]]:
