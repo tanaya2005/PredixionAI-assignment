@@ -10,6 +10,7 @@ from app.config import BUDGETS, TOOL_POLICY
 from app.contracts import Intake, ResearchPlan, Source
 from app.graph import State
 from app.nodes.execute import execute
+from app.nodes.filter import filter_evidence
 from app.nodes.intake import intake
 from app.nodes.plan import plan
 
@@ -386,5 +387,222 @@ def test_execute_wall_clock_breach_degrades_early(tmp_path: Path, monkeypatch: p
     updated_state = execute(state)
     assert updated_state.status in ("degraded", "insufficient_evidence")
     assert len(updated_state.calls) == 0  # Exited immediately before making calls
+
+
+def test_filter_scorer_drops_irrelevant_and_keeps_relevant(tmp_path: Path) -> None:
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    s_rel = Source(
+        id="s1",
+        url="https://docs.python.org/3/whatsnew/3.11.html",
+        title="Python 3.11 Release Notes",
+        text="Python 3.11 includes significant performance improvements and fine-grained error locations. " * 10,
+        domain="docs.python.org",
+        retrieved_at=now,
+        trust=1.0,
+        tool="web_search",
+        provider="tavily",
+    )
+    s_irrel = Source(
+        id="s2",
+        url="https://example.com/unrelated-shoes",
+        title="Buy Discount Shoes",
+        text="Buy running shoes online today with fast shipping and huge discounts. " * 10,
+        domain="example.com",
+        retrieved_at=now,
+        trust=0.5,
+        tool="web_search",
+        provider="tavily",
+    )
+    state = State(
+        run_id="run_filter_rel",
+        question="What is new in Python 3.11?",
+        trace_path=tmp_path / "run_filter_rel.jsonl",
+        sources=[s_rel, s_irrel],
+        plan=ResearchPlan(
+            query_type="explain",
+            sub_questions=["What are Python 3.11 features?"],
+            search_queries=["python 3.11 new features"],
+            tools=["web_search"],
+            stop_criteria="done",
+        ),
+    )
+
+    with patch("app.relevance.router.call_json") as mock_router:
+        from app.relevance import RelevanceItem, RelevanceOutput
+
+        mock_router.return_value = RelevanceOutput(
+            items=[
+                RelevanceItem(id="s1", score=0.95, reason="Directly answers features"),
+                RelevanceItem(id="s2", score=0.05, reason="Irrelevant shoe store"),
+            ]
+        )
+        updated_state = filter_evidence(state)
+
+    assert len(updated_state.kept) == 1
+    assert updated_state.kept[0].url == s_rel.url
+    assert updated_state.kept[0].id == "s1"
+
+
+def test_filter_scorer_failure_preserves_trust_ordering(tmp_path: Path) -> None:
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    s_low_trust = Source(
+        id="s1",
+        url="https://medium.com/post1",
+        title="Post 1",
+        text="Good content discussing the question with enough characters to pass junk filtering. " * 8,
+        domain="medium.com",
+        retrieved_at=now,
+        trust=0.5,
+        tool="web_search",
+        provider="tavily",
+    )
+    s_high_trust = Source(
+        id="s2",
+        url="https://docs.python.org/post2",
+        title="Post 2",
+        text="High trust official doc content discussing the question in detail with plenty of text. " * 8,
+        domain="docs.python.org",
+        retrieved_at=now,
+        trust=1.0,
+        tool="web_search",
+        provider="tavily",
+    )
+    state = State(
+        run_id="run_filter_fail",
+        question="What is new?",
+        trace_path=tmp_path / "run_filter_fail.jsonl",
+        sources=[s_low_trust, s_high_trust],
+    )
+
+    with patch("app.relevance.router.call_json", return_value=None):
+        updated_state = filter_evidence(state)
+
+    assert len(updated_state.kept) == 2
+    # High trust source should be ranked first and renamed s1
+    assert updated_state.kept[0].url == s_high_trust.url
+    assert updated_state.kept[0].id == "s1"
+    assert updated_state.kept[1].url == s_low_trust.url
+    assert updated_state.kept[1].id == "s2"
+
+
+def test_filter_all_zeros_scorer_still_keeps_at_least_two(tmp_path: Path) -> None:
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    texts = [
+        "Vector databases index high-dimensional embeddings efficiently using hierarchical navigable small world graphs and inverted file indexes with product quantization for similarity queries in machine learning applications. " * 4,
+        "Photosynthesis in green plants converts light energy, usually from the sun, into chemical energy that can later be released to fuel the organisms' metabolic activities through cellular respiration processes. " * 4,
+        "The Renaissance was a fervent period of European cultural, artistic, political and economic rebirth following the Middle Ages, generally described as taking place from the 14th century to the 17th century. " * 4,
+    ]
+    sources = [
+        Source(
+            id=f"s{i}",
+            url=f"https://site{i}.com/page{i}",
+            title=f"Page {i}",
+            text=texts[i - 1],
+            domain=f"site{i}.com",
+            retrieved_at=now,
+            trust=0.5 + (0.1 * i),
+            tool="web_search",
+            provider="tavily",
+        )
+        for i in range(1, 4)
+    ]
+    state = State(
+        run_id="run_filter_zeros",
+        question="Question?",
+        trace_path=tmp_path / "run_filter_zeros.jsonl",
+        sources=sources,
+    )
+
+    with patch("app.relevance.router.call_json") as mock_router:
+        from app.relevance import RelevanceItem, RelevanceOutput
+
+        mock_router.return_value = RelevanceOutput(
+            items=[RelevanceItem(id=f"s{i}", score=0.0, reason="zero") for i in range(1, 4)]
+        )
+        updated_state = filter_evidence(state)
+
+    # Scorer returned 0 for everything, but guard keeps >= 2
+    assert len(updated_state.kept) >= 2
+    assert updated_state.kept[0].id == "s1"
+    assert updated_state.kept[1].id == "s2"
+
+
+def test_filter_junk_drop_reasons_aggregated(tmp_path: Path) -> None:
+    from datetime import datetime, timezone
+    from app.trace import Tracer
+
+    now = datetime.now(timezone.utc)
+    s_short = Source(
+        id="s1",
+        url="https://site1.com/short",
+        title="Short",
+        text="Too short",
+        domain="site1.com",
+        retrieved_at=now,
+        trust=0.5,
+        tool="web_search",
+        provider="tavily",
+    )
+    s_404 = Source(
+        id="s2",
+        url="https://site2.com/404",
+        title="404",
+        text="404 Page Not Found error occurred. " * 15,
+        domain="site2.com",
+        retrieved_at=now,
+        trust=0.5,
+        tool="web_search",
+        provider="tavily",
+    )
+    s_good = Source(
+        id="s3",
+        url="https://site3.com/good",
+        title="Good",
+        text="A completely valid source body that provides meaningful explanations and analysis. " * 8,
+        domain="site3.com",
+        retrieved_at=now,
+        trust=0.8,
+        tool="web_search",
+        provider="tavily",
+    )
+    state = State(
+        run_id="run_filter_junk",
+        question="Question?",
+        trace_path=tmp_path / "run_filter_junk.jsonl",
+        sources=[s_short, s_404, s_good],
+    )
+
+    with patch("app.relevance.router.call_json") as mock_router:
+        from app.relevance import RelevanceItem, RelevanceOutput
+
+        mock_router.return_value = RelevanceOutput(
+            items=[RelevanceItem(id="s3", score=0.9, reason="valid")]
+        )
+        updated_state = filter_evidence(state)
+
+    assert len(updated_state.kept) == 1
+    assert updated_state.kept[0].url == s_good.url
+
+    tracer = Tracer(run_id="run_filter_junk", trace_dir=tmp_path)
+    # Read from the file on disk as Tracer instance in test_nodes is separate from filter_evidence's tracer
+    trace_file = state.trace_path
+    assert trace_file.exists()
+    import json
+    lines = [json.loads(line) for line in trace_file.read_text(encoding="utf-8").strip().splitlines() if line]
+    filter_events = [e for e in lines if e.get("node") == "filter"]
+    assert len(filter_events) == 1
+    fe = filter_events[0]
+    assert fe["candidates_in"] == 3
+    assert fe["junk_dropped"] == 2
+    assert "text_under_300_chars" in fe["junk_reasons"]
+    assert "html_error_marker" in fe["junk_reasons"]
+    assert fe["kept"] == 1
+
 
 
