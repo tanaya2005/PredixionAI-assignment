@@ -1,0 +1,3 @@
+# Degraded Sample Output
+Placeholder.
+
