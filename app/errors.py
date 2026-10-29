@@ -17,6 +17,10 @@ class ToolError(ResearchAgentError):
     """Raised when an individual tool invocation fails."""
 
 
+class ProviderSkipped(ResearchAgentError):
+    """Raised when a provider is skipped due to missing API credentials."""
+
+
 class ToolExhausted(ResearchAgentError):
     """Raised when all providers and fallbacks in a tool chain have failed."""
 

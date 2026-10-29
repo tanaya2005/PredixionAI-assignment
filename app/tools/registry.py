@@ -9,7 +9,7 @@ from typing import Any
 from pydantic import BaseModel, ValidationError
 
 from app.cache import cache
-from app.errors import ToolError, ToolExhausted
+from app.errors import ProviderSkipped, ToolError, ToolExhausted
 from app.tools.base import ToolResult, ToolSpec
 from app.trace import Tracer
 
@@ -199,6 +199,19 @@ def call(tool: str, args: BaseModel | dict[str, Any], *, tracer: Tracer) -> Tool
                     status="ok",
                     latency_ms=latency_ms,
                 )
+
+            except ProviderSkipped as skip_exc:
+                latency_ms = max(0, int((time.perf_counter() - start_time) * 1000))
+                tracer.event(
+                    node="execute",
+                    tool=tool,
+                    provider=provider_name,
+                    attempt=attempt,
+                    latency_ms=latency_ms,
+                    status="skipped",
+                    note=str(skip_exc),
+                )
+                break  # Skip to next provider in fallback chain
 
             except Exception as exc:
                 latency_ms = max(0, int((time.perf_counter() - start_time) * 1000))
