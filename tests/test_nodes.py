@@ -7,8 +7,9 @@ from unittest.mock import patch
 import pytest
 
 from app.config import BUDGETS, TOOL_POLICY
-from app.contracts import Intake, ResearchPlan
+from app.contracts import Intake, ResearchPlan, Source
 from app.graph import State
+from app.nodes.execute import execute
 from app.nodes.intake import intake
 from app.nodes.plan import plan
 
@@ -209,4 +210,181 @@ def test_plan_written_to_trace_before_tools(tmp_path: Path) -> None:
     content = trace_file.read_text(encoding="utf-8")
     assert "HNSW graph index algorithm" in content
     assert '"node": "plan"' in content
+
+
+def test_execute_happy_path_produces_contiguous_sources(tmp_path: Path) -> None:
+    state = State(
+        run_id="run_exec_happy",
+        question="Compare vector databases",
+        trace_path=tmp_path / "run_exec_happy.jsonl",
+        intake=Intake(query_type="comparison", entities=["Qdrant", "Milvus"], k_sources=6, max_steps=6),
+        plan=ResearchPlan(
+            query_type="comparison",
+            sub_questions=["What is Qdrant?", "What is Milvus?"],
+            search_queries=["qdrant vector db", "milvus vector db"],
+            tools=["web_search", "fetch_page"],
+            stop_criteria="docs found",
+        ),
+    )
+
+    from app.tools.base import ToolResult
+
+    def fake_call(tool: str, args: Any, *, tracer: Any) -> ToolResult:
+        if tool == "web_search":
+            q = getattr(args, "query", "")
+            return ToolResult(
+                items=[
+                    {"title": f"Doc for {q}", "url": f"https://example.com/{abs(hash(q))}", "snippet": f"Snippet for {q}"}
+                ],
+                provider="tavily",
+                status="ok",
+            )
+        elif tool == "fetch_page":
+            u = getattr(args, "url", "")
+            return ToolResult(
+                items=[
+                    {"title": f"Page for {u}", "url": u, "text": f"Extensive documentation text for {u}. " * 20}
+                ],
+                provider="jina",
+                status="ok",
+            )
+        return ToolResult(items=[], provider="unknown", status="empty")
+
+    with patch("app.nodes.execute.call", side_effect=fake_call):
+        updated_state = execute(state)
+
+    assert len(updated_state.sources) >= 2
+    assert updated_state.sources[0].id == "s1"
+    assert updated_state.sources[1].id == "s2"
+    assert updated_state.status == "ok"
+    assert len(updated_state.calls) <= 6
+
+
+def test_execute_partial_search_failure_still_gathers_sources(tmp_path: Path) -> None:
+    state = State(
+        run_id="run_exec_partial",
+        question="Vector search analysis",
+        trace_path=tmp_path / "run_exec_partial.jsonl",
+        intake=Intake(query_type="comparison", max_steps=6),
+        plan=ResearchPlan(
+            query_type="comparison",
+            sub_questions=["Q1", "Q2"],
+            search_queries=["failing query", "succeeding query"],
+            tools=["web_search", "fetch_page"],
+            stop_criteria="done",
+        ),
+    )
+
+    from app.errors import ToolExhausted
+    from app.tools.base import ToolResult
+
+    def fake_call(tool: str, args: Any, *, tracer: Any) -> ToolResult:
+        if tool == "web_search":
+            if getattr(args, "query") == "failing query":
+                raise ToolExhausted("Search provider 500")
+            return ToolResult(
+                items=[{"title": "Valid Hit", "url": "https://example.com/valid", "snippet": "Text"}],
+                provider="tavily",
+                status="ok",
+            )
+        return ToolResult(
+            items=[{"title": "Valid Hit", "url": "https://example.com/valid", "text": "Full text content " * 15}],
+            provider="jina",
+            status="ok",
+        )
+
+    with patch("app.nodes.execute.call", side_effect=fake_call):
+        updated_state = execute(state)
+
+    assert len(updated_state.sources) >= 1
+    assert any(c.status == "error" for c in updated_state.calls)
+    assert any(c.status == "ok" for c in updated_state.calls)
+
+
+def test_execute_all_tools_exhausted_results_in_insufficient_evidence(tmp_path: Path) -> None:
+    state = State(
+        run_id="run_exec_all_fail",
+        question="Dead network scenario",
+        trace_path=tmp_path / "run_exec_all_fail.jsonl",
+        intake=Intake(query_type="explain", max_steps=6),
+        plan=ResearchPlan(
+            query_type="explain",
+            sub_questions=["Q1"],
+            search_queries=["search query"],
+            tools=["web_search"],
+            stop_criteria="done",
+        ),
+    )
+
+    from app.errors import ToolExhausted
+
+    with patch("app.nodes.execute.call", side_effect=ToolExhausted("All down")):
+        updated_state = execute(state)
+
+    assert len(updated_state.sources) == 0
+    assert updated_state.status == "insufficient_evidence"
+
+
+def test_execute_budget_exhaustion_after_six_calls(tmp_path: Path) -> None:
+    state = State(
+        run_id="run_exec_budget",
+        question="Heavy search query",
+        trace_path=tmp_path / "run_exec_budget.jsonl",
+        intake=Intake(query_type="comparison", max_steps=6),
+        plan=ResearchPlan(
+            query_type="comparison",
+            sub_questions=["SQ1", "SQ2"],
+            search_queries=["q1", "q2", "q3", "q4", "q5", "q6"],
+            tools=["web_search"],
+            stop_criteria="done",
+        ),
+    )
+
+    from app.tools.base import ToolResult
+
+    call_count = 0
+
+    def fake_call(tool: str, args: Any, *, tracer: Any) -> ToolResult:
+        nonlocal call_count
+        call_count += 1
+        return ToolResult(
+            items=[
+                {"title": f"Hit {call_count}a", "url": f"https://example.com/hit_{call_count}a", "snippet": "Content " * 15},
+                {"title": f"Hit {call_count}b", "url": f"https://example.com/hit_{call_count}b", "snippet": "Content " * 15},
+            ],
+            provider="tavily",
+            status="ok",
+        )
+
+    with patch("app.nodes.execute.call", side_effect=fake_call):
+        updated_state = execute(state)
+
+    # Hard cap of 6 calls must be strictly honoured
+    assert len(updated_state.calls) == 6
+    assert updated_state.status == "degraded"
+
+
+def test_execute_wall_clock_breach_degrades_early(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    state = State(
+        run_id="run_exec_timeout",
+        question="Slow query",
+        trace_path=tmp_path / "run_exec_timeout.jsonl",
+        started_at=1_000_000.0,
+        intake=Intake(query_type="comparison", max_steps=6),
+        plan=ResearchPlan(
+            query_type="comparison",
+            sub_questions=["SQ1"],
+            search_queries=["q1", "q2", "q3"],
+            tools=["web_search"],
+            stop_criteria="done",
+        ),
+    )
+
+    # Simulate clock exceeding 60s
+    monkeypatch.setattr("time.time", lambda: 1_000_070.0)
+
+    updated_state = execute(state)
+    assert updated_state.status in ("degraded", "insufficient_evidence")
+    assert len(updated_state.calls) == 0  # Exited immediately before making calls
+
 
