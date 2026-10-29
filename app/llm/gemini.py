@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TypeVar
+from typing import Any, TypeVar
 from pydantic import BaseModel
 
 from app.config import GEMINI_API_KEY
@@ -34,11 +34,28 @@ def generate_json(
     key = api_key or GEMINI_API_KEY
     client = genai.Client(api_key=key)
 
-    config = types.GenerateContentConfig(
-        temperature=temperature,
-        response_mime_type="application/json",
-        response_schema=schema,
-    )
+    # Clean schema dict to remove additionalProperties which google-genai rejects
+    def _strip_additional_properties(data: Any) -> Any:
+        if isinstance(data, dict):
+            return {k: _strip_additional_properties(v) for k, v in data.items() if k != "additionalProperties"}
+        if isinstance(data, list):
+            return [_strip_additional_properties(v) for v in data]
+        return data
+
+    try:
+        raw_schema = schema.model_json_schema()
+        cleaned_schema = _strip_additional_properties(raw_schema)
+        config = types.GenerateContentConfig(
+            temperature=temperature,
+            response_mime_type="application/json",
+            response_schema=cleaned_schema,
+        )
+    except Exception:
+        config = types.GenerateContentConfig(
+            temperature=temperature,
+            response_mime_type="application/json",
+            response_schema=schema,
+        )
     response = client.models.generate_content(
         model=model,
         contents=prompt,
