@@ -1,2 +1,121 @@
-{}
-
+{
+  "run_id": "run_sample_01_comparison",
+  "question": "Compare the top 3 open-source vector databases for a startup building RAG products.",
+  "short_answer": "Qdrant, Weaviate, and Milvus are the leading open-source vector databases. For a fast-moving RAG startup, Qdrant is recommended due to its single-binary operational simplicity and native payload filtering, while Milvus suits large-scale distributed enterprise deployments and Weaviate provides rich hybrid-search capabilities.",
+  "key_findings": [
+    {
+      "claim": "Qdrant is distributed as a single standalone binary and can run without external dependencies.",
+      "source_ids": [
+        "s1"
+      ],
+      "supporting_quote": "Qdrant is distributed as a single binary and can run without any external dependencies.",
+      "corroboration": 1
+    },
+    {
+      "claim": "Milvus separates compute and storage components to provide cloud-native distributed horizontal scaling.",
+      "source_ids": [
+        "s2"
+      ],
+      "supporting_quote": "Milvus architecture separates compute and storage into decoupled layers ensuring high availability and horizontal scaling.",
+      "corroboration": 1
+    },
+    {
+      "claim": "Weaviate integrates vector indexing with native inverted keyword indexes for out-of-the-box hybrid search.",
+      "source_ids": [
+        "s3"
+      ],
+      "supporting_quote": "Weaviate combines vector search with traditional keyword search algorithms to deliver out-of-the-box hybrid search capabilities.",
+      "corroboration": 1
+    }
+  ],
+  "sources": [
+    {
+      "id": "s1",
+      "title": "Qdrant Documentation - Architecture & Deployment",
+      "url": "https://qdrant.tech/documentation/overview/",
+      "domain": "qdrant.tech",
+      "published": "2026-03-15",
+      "retrieved_at": "2026-10-30T01:15:22Z",
+      "trust": 1.0,
+      "untrusted": false
+    },
+    {
+      "id": "s2",
+      "title": "Milvus Architecture Overview",
+      "url": "https://milvus.io/docs/overview.md",
+      "domain": "milvus.io",
+      "published": "2026-02-20",
+      "retrieved_at": "2026-10-30T01:15:24Z",
+      "trust": 1.0,
+      "untrusted": false
+    },
+    {
+      "id": "s3",
+      "title": "Weaviate Architecture and Hybrid Search Documentation",
+      "url": "https://weaviate.io/developers/weaviate",
+      "domain": "weaviate.io",
+      "published": "2026-01-10",
+      "retrieved_at": "2026-10-30T01:15:25Z",
+      "trust": 1.0,
+      "untrusted": false
+    }
+  ],
+  "confidence": {
+    "level": "medium",
+    "score": 0.72,
+    "reasons": [
+      "Grounding rate: 100.0% (3 findings kept)",
+      "Distinct cited domains: 3 (0.75 domain diversity)",
+      "Corroborated findings: 0/3 (0.0%)",
+      "Mean source trust: 1.00"
+    ]
+  },
+  "assumptions": [
+    "'Top 3' evaluated by GitHub stars, developer adoption, and cloud-native production support.",
+    "Target workload assumes low-maintenance retrieval-augmented generation (RAG)."
+  ],
+  "limitations": [
+    "Hardware benchmark claims reflect vendor documentation rather than uniform independent evaluations.",
+    "Managed cloud pricing tiers were excluded from this self-hosted evaluation."
+  ],
+  "next_steps": [
+    "Run benchmark ingest tests with startup's exact embedding dimensionality (e.g. 1536 or 3072).",
+    "Evaluate whether hybrid keyword+vector search improves retrieval accuracy on sample queries."
+  ],
+  "status": "ok",
+  "meta": {
+    "plan": {
+      "query_type": "comparison",
+      "sub_questions": [
+        "What are Qdrant architecture and operational requirements?",
+        "What are Milvus architecture and scalability tradeoffs?",
+        "What are Weaviate hybrid search capabilities?"
+      ],
+      "search_queries": [
+        "qdrant architecture documentation vector database",
+        "milvus architecture scalability distributed",
+        "weaviate hybrid search vector keyword documentation"
+      ],
+      "tools": [
+        "web_search",
+        "fetch_page"
+      ],
+      "stop_criteria": "Sufficient documentation gathered for all three engines"
+    },
+    "tool_calls": 5,
+    "latency_ms": 14200,
+    "cost_usd": 0.0084,
+    "grounding_rate": 1.0,
+    "dropped_findings": 0,
+    "cache_hits": 2,
+    "provider_failures": {},
+    "models": {
+      "intake": "llama-3.3-70b-versatile",
+      "plan": "gemini-2.5-flash",
+      "filter": "llama-3.3-70b-versatile",
+      "synthesize": "gemini-2.5-flash",
+      "judge": "llama-3.3-70b-versatile"
+    },
+    "llm_calls": 4
+  }
+}

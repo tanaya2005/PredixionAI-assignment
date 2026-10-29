@@ -1,2 +1,87 @@
-{}
-
+{
+  "run_id": "run_sample_03_degraded",
+  "question": "Compare Qdrant vs Milvus vector databases for RAG pipelines.",
+  "short_answer": "Execution operated under degraded retrieval conditions due to primary search provider exhaustion. Partial community documentation indicates Qdrant supports single-binary deployment while Milvus provides distributed clustering.",
+  "key_findings": [
+    {
+      "claim": "Qdrant provides containerized and binary execution options for single-node deployments.",
+      "source_ids": [
+        "s1"
+      ],
+      "supporting_quote": "Qdrant is distributed as a single binary and can run without any external dependencies.",
+      "corroboration": 1
+    }
+  ],
+  "sources": [
+    {
+      "id": "s1",
+      "title": "Qdrant Documentation Mirror",
+      "url": "https://qdrant.tech/documentation/overview/",
+      "domain": "qdrant.tech",
+      "published": "2026-01-01",
+      "retrieved_at": "2026-10-30T01:30:15Z",
+      "trust": 0.8,
+      "untrusted": false
+    }
+  ],
+  "confidence": {
+    "level": "low",
+    "score": 0.49,
+    "reasons": [
+      "Grounding rate: 100.0% (1 findings kept)",
+      "Distinct cited domains: 1 (0.25 domain diversity)",
+      "Corroborated findings: 0/1 (0.0%)",
+      "Mean source trust: 0.80",
+      "Hard override: Single domain across all findings caps score at 0.60",
+      "Hard override: Single finding caps confidence level at low"
+    ]
+  },
+  "assumptions": [
+    "Fallback provider (DuckDuckGo) results used in lieu of primary search engine API."
+  ],
+  "limitations": [
+    "Primary search provider returned HTTP 500 / 429; pipeline fell back to secondary search engine.",
+    "Only a single source survived quality and relevance filters.",
+    "Execution operated in degraded mode (e.g. wall-clock timeout, ungrounded findings, or tool exhaustion)."
+  ],
+  "next_steps": [
+    "Retry query once primary search provider rate limits reset.",
+    "Check network connectivity and provider status dashboard."
+  ],
+  "status": "degraded",
+  "meta": {
+    "plan": {
+      "query_type": "comparison",
+      "sub_questions": [
+        "What are Qdrant architecture details?",
+        "What are Milvus architecture details?"
+      ],
+      "search_queries": [
+        "qdrant vector database documentation",
+        "milvus distributed vector search"
+      ],
+      "tools": [
+        "web_search",
+        "fetch_page"
+      ],
+      "stop_criteria": "Found architecture details"
+    },
+    "tool_calls": 3,
+    "latency_ms": 22100,
+    "cost_usd": 0.0035,
+    "grounding_rate": 1.0,
+    "dropped_findings": 0,
+    "cache_hits": 0,
+    "provider_failures": {
+      "tavily": 2
+    },
+    "models": {
+      "intake": "llama-3.3-70b-versatile",
+      "plan": "gemini-2.5-flash",
+      "filter": "llama-3.3-70b-versatile",
+      "synthesize": "gemini-2.5-flash",
+      "judge": "llama-3.3-70b-versatile"
+    },
+    "llm_calls": 4
+  }
+}

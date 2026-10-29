@@ -1,2 +1,154 @@
-{}
-
+{
+  "run_id": "run_sample_02_list",
+  "question": "Find 5 Indian B2B SaaS startups in HR tech and summarise their positioning.",
+  "short_answer": "Five prominent Indian B2B SaaS startups in the HR tech space are Darwinbox (enterprise HCM suite), Keka (SME employee experience and payroll), greytHR (cloud payroll and statutory compliance), ZingHR (enterprise employee lifecycle platform), and sense (AI talent acquisition and recruiting).",
+  "key_findings": [
+    {
+      "claim": "Darwinbox positions as an enterprise-grade cloud HCM platform for digital HR transformation.",
+      "source_ids": [
+        "s1"
+      ],
+      "supporting_quote": "Darwinbox is an enterprise-grade cloud HR technology suite empowering digital HR transformation across global enterprises.",
+      "corroboration": 1
+    },
+    {
+      "claim": "Keka positions around employee-centric payroll and modern performance management for fast-growing SMEs.",
+      "source_ids": [
+        "s2"
+      ],
+      "supporting_quote": "Keka provides an employee-centric HR platform focused on automated payroll and real-time performance tracking for modern businesses.",
+      "corroboration": 1
+    },
+    {
+      "claim": "greytHR specializes in simplifying HR operations and statutory payroll compliance for growing businesses.",
+      "source_ids": [
+        "s3"
+      ],
+      "supporting_quote": "greytHR simplifies HR processes and ensures complete statutory compliance for over twenty thousand organizations.",
+      "corroboration": 1
+    },
+    {
+      "claim": "ZingHR provides mobile-first, enterprise employee lifecycle management and business outcome automation.",
+      "source_ids": [
+        "s4"
+      ],
+      "supporting_quote": "ZingHR delivers out-of-the-box employee lifecycle management powered by AI and mobile-first user experiences.",
+      "corroboration": 1
+    },
+    {
+      "claim": "Sense provides AI-driven talent acquisition and automated candidate engagement workflows for recruiters.",
+      "source_ids": [
+        "s5"
+      ],
+      "supporting_quote": "Sense empowers staffing and enterprise talent teams with AI-powered candidate engagement and recruitment automation.",
+      "corroboration": 1
+    }
+  ],
+  "sources": [
+    {
+      "id": "s1",
+      "title": "Darwinbox - Enterprise HCM Platform Overview",
+      "url": "https://darwinbox.com/about-us",
+      "domain": "darwinbox.com",
+      "published": "2026-01-15",
+      "retrieved_at": "2026-10-30T01:22:10Z",
+      "trust": 1.0,
+      "untrusted": false
+    },
+    {
+      "id": "s2",
+      "title": "Keka HR - Platform Positioning & Features",
+      "url": "https://keka.com/about",
+      "domain": "keka.com",
+      "published": "2026-02-01",
+      "retrieved_at": "2026-10-30T01:22:12Z",
+      "trust": 1.0,
+      "untrusted": false
+    },
+    {
+      "id": "s3",
+      "title": "greytHR - Cloud HR & Payroll Compliance",
+      "url": "https://greythr.com/overview",
+      "domain": "greythr.com",
+      "published": "2026-03-01",
+      "retrieved_at": "2026-10-30T01:22:14Z",
+      "trust": 1.0,
+      "untrusted": false
+    },
+    {
+      "id": "s4",
+      "title": "ZingHR - Employee Experience & Business Automation",
+      "url": "https://zinghr.com/company",
+      "domain": "zinghr.com",
+      "published": "2026-02-18",
+      "retrieved_at": "2026-10-30T01:22:15Z",
+      "trust": 1.0,
+      "untrusted": false
+    },
+    {
+      "id": "s5",
+      "title": "Sense HQ - Recruitment Automation Platform",
+      "url": "https://sensehq.com/platform",
+      "domain": "sensehq.com",
+      "published": "2026-01-20",
+      "retrieved_at": "2026-10-30T01:22:16Z",
+      "trust": 1.0,
+      "untrusted": false
+    }
+  ],
+  "confidence": {
+    "level": "medium",
+    "score": 0.74,
+    "reasons": [
+      "Grounding rate: 100.0% (5 findings kept)",
+      "Distinct cited domains: 5 (1.00 domain diversity)",
+      "Corroborated findings: 0/5 (0.0%)",
+      "Mean source trust: 1.00"
+    ]
+  },
+  "assumptions": [
+    "Headquartered in India or founded by Indian teams serving domestic and international B2B clients.",
+    "Categorized under HR tech and recruitment SaaS software."
+  ],
+  "limitations": [
+    "Private ARR figures and customer counts are self-reported on company websites."
+  ],
+  "next_steps": [
+    "Segment candidate companies by specific sub-verticals (payroll vs recruitment vs learning management).",
+    "Investigate funding stages and customer retention metrics across G2 and Gartner Peer Insights."
+  ],
+  "status": "ok",
+  "meta": {
+    "plan": {
+      "query_type": "list",
+      "sub_questions": [
+        "Which Indian B2B SaaS startups operate in HR tech?",
+        "What is the positioning of each identified startup?"
+      ],
+      "search_queries": [
+        "Indian B2B SaaS startups HR tech payroll recruitment",
+        "Darwinbox Keka greytHR ZingHR positioning"
+      ],
+      "tools": [
+        "web_search",
+        "fetch_page"
+      ],
+      "stop_criteria": "Found 5 verifiable Indian HR tech SaaS companies"
+    },
+    "tool_calls": 6,
+    "latency_ms": 16500,
+    "cost_usd": 0.0092,
+    "grounding_rate": 1.0,
+    "dropped_findings": 0,
+    "cache_hits": 1,
+    "provider_failures": {},
+    "models": {
+      "intake": "llama-3.3-70b-versatile",
+      "plan": "gemini-2.5-flash",
+      "filter": "llama-3.3-70b-versatile",
+      "synthesize": "gemini-2.5-flash",
+      "judge": "llama-3.3-70b-versatile"
+    },
+    "llm_calls": 4
+  }
+}
