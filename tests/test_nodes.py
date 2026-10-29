@@ -13,6 +13,7 @@ from app.nodes.execute import execute
 from app.nodes.filter import filter_evidence
 from app.nodes.intake import intake
 from app.nodes.plan import plan
+from app.nodes.synthesize import synthesize
 
 
 @pytest.mark.parametrize("q_type", ["comparison", "list", "explain", "howto"])
@@ -603,6 +604,141 @@ def test_filter_junk_drop_reasons_aggregated(tmp_path: Path) -> None:
     assert "text_under_300_chars" in fe["junk_reasons"]
     assert "html_error_marker" in fe["junk_reasons"]
     assert fe["kept"] == 1
+
+
+def test_synthesize_untrusted_wrappers_and_char_budget(tmp_path: Path) -> None:
+    from datetime import datetime, timezone
+    from app.contracts import Finding, SynthesisDraft
+
+    now = datetime.now(timezone.utc)
+    # Create sources exceeding 40,000 chars total
+    # Each source has 15,000 chars. 3 sources = 45,000 chars
+    text_content = "This is a detailed analysis of high dimensional vector databases and indexing techniques. " * 160
+    sources = [
+        Source(
+            id=f"s{i}",
+            url=f"https://source{i}.com/docs",
+            title=f"Source {i}",
+            text=text_content,
+            domain=f"source{i}.com",
+            retrieved_at=now,
+            trust=0.9 - (0.1 * i),
+            tool="web_search",
+            provider="tavily",
+        )
+        for i in range(1, 4)
+    ]
+    state = State(
+        run_id="run_synth_budget",
+        question="How do vector databases index embeddings?",
+        trace_path=tmp_path / "run_synth_budget.jsonl",
+        kept=sources,
+    )
+
+    captured_prompt = ""
+
+    def fake_router_call(*args, **kwargs):
+        nonlocal captured_prompt
+        captured_prompt = kwargs.get("prompt", "")
+        return SynthesisDraft(
+            short_answer="Vector databases index embeddings using graphs and quantization.",
+            findings=[
+                Finding(
+                    claim="Vector databases use graph-based indexes for similarity search.",
+                    source_ids=["s1"],
+                    supporting_quote="This is a detailed analysis of high dimensional vector databases and indexing techniques.",
+                )
+            ],
+            contradictions=["One paper claims IVFPQ is faster than HNSW."],
+        )
+
+    with patch("app.nodes.synthesize.router.call_json", side_effect=fake_router_call):
+        updated_state = synthesize(state)
+
+    assert updated_state.draft is not None
+    assert len(updated_state.draft.findings) == 1
+    # Check untrusted wrappers exist in prompt
+    assert '<untrusted_document id="s1" url="https://source1.com/docs">' in captured_prompt
+    assert "</untrusted_document>" in captured_prompt
+    # Char budget MAX_EVIDENCE_CHARS (40,000) was respected: s3 was omitted
+    assert "https://source3.com/docs" not in captured_prompt
+    assert len(captured_prompt) < 45000
+    # Contradictions are carried over
+    assert "One paper claims IVFPQ is faster than HNSW." in updated_state.draft.contradictions
+    assert any("Contradiction:" in lim for lim in updated_state.draft.limitations)
+
+
+def test_synthesize_unknown_source_id_survives_synthesize(tmp_path: Path) -> None:
+    from datetime import datetime, timezone
+    from app.contracts import Finding, SynthesisDraft
+
+    now = datetime.now(timezone.utc)
+    s1 = Source(
+        id="s1",
+        url="https://source1.com/docs",
+        title="Source 1",
+        text="Valid text body describing vector search architectures and algorithms. " * 8,
+        domain="source1.com",
+        retrieved_at=now,
+        trust=0.9,
+        tool="web_search",
+        provider="tavily",
+    )
+    state = State(
+        run_id="run_synth_unknown_id",
+        question="Question?",
+        trace_path=tmp_path / "run_synth_unknown_id.jsonl",
+        kept=[s1],
+    )
+
+    mock_draft = SynthesisDraft(
+        short_answer="Summary answer.",
+        findings=[
+            Finding(
+                claim="Finding citing unknown invented source id s99.",
+                source_ids=["s99"],
+                supporting_quote="Valid text body describing vector search architectures and algorithms.",
+            )
+        ],
+    )
+
+    with patch("app.nodes.synthesize.router.call_json", return_value=mock_draft):
+        updated_state = synthesize(state)
+
+    # Verification is Node 6's job — synthesis MUST NOT drop it here
+    assert updated_state.draft is not None
+    assert len(updated_state.draft.findings) == 1
+    assert updated_state.draft.findings[0].source_ids == ["s99"]
+
+
+def test_synthesize_router_none_sets_degraded(tmp_path: Path) -> None:
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    s1 = Source(
+        id="s1",
+        url="https://source1.com/docs",
+        title="Source 1",
+        text="Valid text body describing vector search architectures and algorithms. " * 8,
+        domain="source1.com",
+        retrieved_at=now,
+        trust=0.9,
+        tool="web_search",
+        provider="tavily",
+    )
+    state = State(
+        run_id="run_synth_fail",
+        question="Question?",
+        trace_path=tmp_path / "run_synth_fail.jsonl",
+        kept=[s1],
+    )
+
+    with patch("app.nodes.synthesize.router.call_json", return_value=None):
+        updated_state = synthesize(state)
+
+    assert updated_state.draft is None
+    assert updated_state.status == "degraded"
+
 
 
 
