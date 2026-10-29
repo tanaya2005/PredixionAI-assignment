@@ -11,10 +11,13 @@ import respx
 
 from app.cache import Cache
 from app.errors import ProviderSkipped, ToolError, ToolExhausted
-from app.tools import fetch, search
+from app.tools import arxiv, fetch, github, search, wiki
+from app.tools.arxiv import ArxivArgs, arxiv_search
 from app.tools.fetch import FetchArgs, httpx_fetch, jina_fetch
+from app.tools.github import RepoArgs, github_repo
 from app.tools.registry import REGISTRY, call, register
 from app.tools.search import SearchArgs, ddg_search, exa_search, tavily_search
+from app.tools.wiki import WikiArgs, wiki_summary
 from app.trace import Tracer
 
 
@@ -28,6 +31,9 @@ def clean_tool_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     register(search.ddg_spec)
     register(fetch.fetch_page_spec)
     register(fetch.httpx_fetch_spec)
+    register(wiki.wiki_spec)
+    register(arxiv.arxiv_spec)
+    register(github.github_spec)
 
 
 @respx.mock
@@ -288,4 +294,112 @@ def test_fetch_blocks_ssrf_before_request() -> None:
         jina_fetch(FetchArgs(url=ssrf_url))
     with pytest.raises(ToolError):
         httpx_fetch(FetchArgs(url=ssrf_url))
+
+
+@respx.mock
+def test_wikipedia_payload_parsing_and_resolution() -> None:
+    search_url = "https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=vector%20db&format=json&utf8=1"
+    search_json = {
+        "query": {
+            "search": [
+                {"title": "Vector database", "snippet": "A vector database indexes vectors."}
+            ]
+        }
+    }
+    summary_url = "https://en.wikipedia.org/api/rest_v1/page/summary/Vector_database"
+    summary_json = {
+        "title": "Vector database",
+        "extract": "A vector database is a database that indexes and retrieves high-dimensional vectors.",
+        "content_urls": {
+            "desktop": {"page": "https://en.wikipedia.org/wiki/Vector_database"}
+        },
+    }
+
+    respx.get(search_url).respond(200, json=search_json)
+    respx.get(summary_url).respond(200, json=summary_json)
+
+    results = wiki_summary(WikiArgs(title="vector db"))
+    assert len(results) == 1
+    assert results[0]["title"] == "Vector database"
+    assert results[0]["url"] == "https://en.wikipedia.org/wiki/Vector_database"
+    assert "high-dimensional vectors" in results[0]["text"]
+    assert results[0]["published"] is None
+
+
+@respx.mock
+def test_wikipedia_title_resolution_fallback() -> None:
+    search_url = "https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=exact_topic&format=json&utf8=1"
+    search_json = {"query": {"search": []}}  # Empty search results
+    summary_url = "https://en.wikipedia.org/api/rest_v1/page/summary/exact_topic"
+    summary_json = {
+        "title": "Exact Topic",
+        "extract": "Summary for exact topic.",
+        "content_urls": {"desktop": {"page": "https://en.wikipedia.org/wiki/exact_topic"}},
+    }
+
+    respx.get(search_url).respond(200, json=search_json)
+    respx.get(summary_url).respond(200, json=summary_json)
+
+    results = wiki_summary(WikiArgs(title="exact_topic"))
+    assert len(results) == 1
+    assert results[0]["title"] == "Exact Topic"
+
+
+@respx.mock
+def test_arxiv_atom_xml_parsing() -> None:
+    xml_data = """<?xml version="1.0" encoding="UTF-8"?>
+    <feed xmlns="http://www.w3.org/2005/Atom">
+      <entry>
+        <id>http://arxiv.org/abs/2601.12345v1</id>
+        <title>Advances in HNSW Graphs for Vector Search</title>
+        <summary>We present an empirical study of hierarchical navigable small world graphs.</summary>
+        <published>2026-01-20T14:30:00Z</published>
+        <link href="https://arxiv.org/abs/2601.12345" rel="alternate" type="text/html"/>
+      </entry>
+    </feed>
+    """
+    respx.get("http://export.arxiv.org/api/query?search_query=all:vector%20search&max_results=3").respond(
+        200, text=xml_data, headers={"content-type": "application/atom+xml"}
+    )
+
+    results = arxiv_search(ArxivArgs(query="vector search", max_results=3))
+    assert len(results) == 1
+    assert results[0]["title"] == "Advances in HNSW Graphs for Vector Search"
+    assert results[0]["url"] == "https://arxiv.org/abs/2601.12345"
+    assert "hierarchical navigable small world" in results[0]["snippet"]
+    assert results[0]["published"] == "2026-01-20"
+
+
+@respx.mock
+def test_github_repo_metadata_parsing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.tools.github.GITHUB_TOKEN", "gh-test-token")
+    github_json = {
+        "full_name": "qdrant/qdrant",
+        "html_url": "https://github.com/qdrant/qdrant",
+        "stargazers_count": 25000,
+        "pushed_at": "2026-10-25T18:00:00Z",
+        "description": "Vector Database for the next generation of AI applications.",
+        "license": {"spdx_id": "Apache-2.0"},
+        "open_issues_count": 120,
+    }
+    respx.get("https://api.github.com/repos/qdrant/qdrant").respond(200, json=github_json)
+
+    results = github_repo(RepoArgs(owner="qdrant", repo="qdrant"))
+    assert len(results) == 1
+    res = results[0]
+    assert res["title"] == "qdrant/qdrant"
+    assert res["url"] == "https://github.com/qdrant/qdrant"
+    assert res["stars"] == 25000
+    assert res["license"] == "Apache-2.0"
+    assert res["open_issues"] == 120
+    assert res["published"] == "2026-10-25"
+
+
+@respx.mock
+def test_github_404_returns_empty_list() -> None:
+    respx.get("https://api.github.com/repos/unknown/nonexistent").respond(404)
+
+    results = github_repo(RepoArgs(owner="unknown", repo="nonexistent"))
+    assert results == []  # Status empty, no exception raised
+
 
